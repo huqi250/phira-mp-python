@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PyPhira 管理员面板</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: #d32f2f;
+        }
+        .login-container {
+            max-width: 400px;
+            margin: 100px auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #d32f2f;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+        }
+        button:hover {
+            background: #b71c1c;
+        }
+        .admin-panel {
+            display: none;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .logout-btn {
+            background: #666;
+            width: auto;
+        }
+        .rooms-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+        }
+        .room-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .room-header {
+            background: #d32f2f;
+            color: white;
+            padding: 15px;
+            font-weight: bold;
+        }
+        .room-body {
+            padding: 15px;
+        }
+        .room-info {
+            margin-bottom: 10px;
+        }
+        .room-info label {
+            display: inline;
+            font-weight: bold;
+            margin-right: 5px;
+        }
+        .players-list {
+            margin-top: 15px;
+            border-top: 1px solid #eee;
+            padding-top: 10px;
+        }
+        .player-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #f5f5f5;
+        }
+        .player-item:last-child {
+            border-bottom: none;
+        }
+        .player-actions {
+            display: flex;
+            gap: 5px;
+        }
+        .btn-small {
+            padding: 5px 10px;
+            font-size: 12px;
+            width: auto;
+        }
+        .btn-kick {
+            background: #f57c00;
+        }
+        .btn-kick:hover {
+            background: #e65100;
+        }
+        .btn-ready {
+            background: #388e3c;
+        }
+        .btn-ready:hover {
+            background: #2e7d32;
+        }
+        .btn-destroy {
+            background: #d32f2f;
+            width: 100%;
+            margin-top: 10px;
+        }
+        .btn-destroy:hover {
+            background: #b71c1c;
+        }
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status-SelectChart {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        .status-WaitForReady {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+        .status-Playing {
+            background: #e8f5e8;
+            color: #388e3c;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        .modal-content {
+            background-color: white;
+            margin: 15% auto;
+            padding: 30px;
+            border-radius: 8px;
+            width: 400px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .btn-confirm {
+            background: #d32f2f;
+        }
+        .btn-cancel {
+            background: #666;
+        }
+        .alert {
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+            display: none;
+        }
+        .alert-success {
+            background: #e8f5e8;
+            color: #388e3c;
+            border: 1px solid #4caf50;
+        }
+        .alert-error {
+            background: #ffebee;
+            color: #d32f2f;
+            border: 1px solid #f44336;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        .refresh-btn {
+            background: #4a6fa5;
+            width: auto;
+        }
+        .refresh-btn:hover {
+            background: #3a5a85;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PyPhira 管理员面板</h1>
+        
+        <!-- 登录界面 -->
+        <div id="login-container" class="login-container">
+            <h2 style="text-align: center; color: #d32f2f;">管理员登录</h2>
+            <div class="form-group">
+                <label for="username">用户名</label>
+                <input type="text" id="username" placeholder="输入管理员用户名">
+            </div>
+            <div class="form-group">
+                <label for="password">密码</label>
+                <input type="password" id="password" placeholder="输入管理员密码">
+            </div>
+            <button onclick="login()">登录</button>
+            <div id="login-error" class="alert alert-error"></div>
+        </div>
+        
+        <!-- 管理员面板 -->
+        <div id="admin-panel" class="admin-panel">
+            <div class="header">
+                <div>
+                    <h2 style="margin: 0;">房间管理</h2>
+                    <small style="color: #666;">当前在线房间: <span id="room-count">0</span></small>
+                </div>
+                <div>
+                    <button class="refresh-btn" onclick="loadRooms()" style="margin-right: 10px;">刷新</button>
+                    <button class="logout-btn" onclick="logout()">退出登录</button>
+                </div>
+            </div>
+            
+            <div id="alert" class="alert"></div>
+            
+            <div id="rooms-container" class="rooms-grid">
+                <!-- 房间卡片将通过JavaScript动态生成 -->
+            </div>
+        </div>
+    </div>
+    
+    <!-- 确认对话框 -->
+    <div id="confirm-modal" class="modal">
+        <div class="modal-content">
+            <h3 id="modal-title">确认操作</h3>
+            <p id="modal-message">确定要执行此操作吗？</p>
+            <div class="modal-buttons">
+                <button class="btn-confirm" onclick="confirmAction()">确认</button>
+                <button class="btn-cancel" onclick="closeModal()">取消</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let authToken = null;
+        let pendingAction = null;
+        
+        function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            if (!username || !password) {
+                showAlert('请输入用户名和密码', 'error');
+                return;
+            }
+            
+            fetch('/api/admin/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, password })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    authToken = data.token;
+                    document.getElementById('login-container').style.display = 'none';
+                    document.getElementById('admin-panel').style.display = 'block';
+                    loadRooms();
+                } else {
+                    showAlert(data.message || '登录失败', 'error');
+                }
+            })
+            .catch(error => {
+                showAlert('登录失败: ' + error.message, 'error');
+            });
+        }
+        
+        function logout() {
+            authToken = null;
+            document.getElementById('login-container').style.display = 'block';
+            document.getElementById('admin-panel').style.display = 'none';
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
+            showAlert('已退出登录', 'success');
+        }
+        
+        function loadRooms() {
+            if (!authToken) return;
+            
+            const container = document.getElementById('rooms-container');
+            container.innerHTML = '<div class="loading">加载中...</div>';
+            
+            fetch('/api/admin/rooms', {
+                headers: {
+                    'Authorization': 'Bearer ' + authToken
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Received data:', data);
+                if (data.status === '0' && data.rooms) {
+                    renderRooms(data.rooms);
+                    document.getElementById('room-count').textContent = data.rooms.length;
+                } else {
+                    showAlert('加载房间列表失败: ' + (data.message || '未知错误'), 'error');
+                    container.innerHTML = '<div class="loading">加载失败</div>';
+                }
+            })
+            .catch(error => {
+                console.error('Error loading rooms:', error);
+                showAlert('加载房间列表失败: ' + error.message, 'error');
+                container.innerHTML = '<div class="loading">加载失败</div>';
+            });
+        }
+        
+        function renderRooms(rooms) {
+            const container = document.getElementById('rooms-container');
+            container.innerHTML = '';
+            
+            if (!rooms || rooms.length === 0) {
+                container.innerHTML = '<div class="loading">暂无房间</div>';
+                return;
+            }
+            
+            rooms.forEach(room => {
+                const roomCard = document.createElement('div');
+                roomCard.className = 'room-card';
+                const users = room.users || {};
+                const usersList = Object.values(users).map(user => `
+                    <div class="player-item">
+                        <span>${user.name || 'Unknown'} (ID: ${user.id || 'Unknown'})</span>
+                        <div class="player-actions">
+                            <button class="btn-small btn-ready" onclick="forceReady('${room.roomId}', '${user.id}')">强制准备</button>
+                            <button class="btn-small btn-kick" onclick="kickPlayer('${room.roomId}', '${user.id}', '${user.name || 'Unknown'}')">踢出</button>
+                        </div>
+                    </div>
+                `).join('');
+                
+                roomCard.innerHTML = `
+                    <div class="room-header">
+                        房间: ${room.roomId}
+                    </div>
+                    <div class="room-body">
+                        <div class="room-info">
+                            <label>状态:</label>
+                            <span class="status-badge status-${room.state}">${room.state}</span>
+                        </div>
+                        <div class="room-info">
+                            <label>人数:</label>
+                            <span>${room.userCount || 0}</span>
+                        </div>
+                        <div class="room-info">
+                            <label>锁定:</label>
+                            <span>${room.locked ? '是' : '否'}</span>
+                        </div>
+                        <div class="room-info">
+                            <label>游戏模式:</label>
+                            <span>${room.cycle ? '循环模式' : '普通模式'}</span>
+                        </div>
+                        <div class="players-list">
+                            <strong>玩家列表:</strong>
+                            ${usersList || '<div class="loading">暂无玩家</div>'}
+                        </div>
+                        <button class="btn-destroy" onclick="destroyRoom('${room.roomId}')">解散房间</button>
+                    </div>
+                `;
+                container.appendChild(roomCard);
+            });
+        }
+        
+        function destroyRoom(roomId) {
+            pendingAction = {
+                type: 'destroy',
+                roomId: roomId
+            };
+            document.getElementById('modal-title').textContent = '确认解散房间';
+            document.getElementById('modal-message').textContent = `确定要解散房间 ${roomId} 吗？此操作不可撤销,并且会导致在准备和游玩过程中的玩家出现未知bug。`;
+            document.getElementById('confirm-modal').style.display = 'block';
+        }
+        
+        function kickPlayer(roomId, userId, userName) {
+            pendingAction = {
+                type: 'kick',
+                roomId: roomId,
+                userId: userId,
+                userName: userName
+            };
+            document.getElementById('modal-title').textContent = '确认踢出玩家';
+            document.getElementById('modal-message').textContent = `确定要踢出玩家 ${userName} (ID: ${userId}) 吗？`;
+            document.getElementById('confirm-modal').style.display = 'block';
+        }
+        
+        function forceReady(roomId, userId) {
+            pendingAction = {
+                type: 'ready',
+                roomId: roomId,
+                userId: userId
+            };
+            document.getElementById('modal-title').textContent = '确认强制准备';
+            document.getElementById('modal-message').textContent = `确定要强制玩家准备吗？`;
+            document.getElementById('confirm-modal').style.display = 'block';
+        }
+        
+        function confirmAction() {
+            if (!pendingAction) return;
+            
+            closeModal();
+            
+            if (pendingAction.type === 'destroy') {
+                performDestroyRoom(pendingAction.roomId);
+            } else if (pendingAction.type === 'kick') {
+                performKickPlayer(pendingAction.roomId, pendingAction.userId);
+            } else if (pendingAction.type === 'ready') {
+                performForceReady(pendingAction.roomId, pendingAction.userId);
+            }
+            
+            pendingAction = null;
+        }
+        
+        function closeModal() {
+            document.getElementById('confirm-modal').style.display = 'none';
+        }
+        
+        function performDestroyRoom(roomId) {
+            fetch('/api/admin/destroy-room', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + authToken
+                },
+                body: JSON.stringify({ roomId, confirmed: true })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showAlert('房间已解散', 'success');
+                    loadRooms();
+                } else {
+                    showAlert(data.message || '解散房间失败', 'error');
+                }
+            })
+            .catch(error => {
+                showAlert('解散房间失败: ' + error.message, 'error');
+            });
+        }
+        
+        function performKickPlayer(roomId, userId) {
+            fetch('/api/admin/kick-player', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + authToken
+                },
+                body: JSON.stringify({ roomId, userId, confirmed: true })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showAlert('玩家已踢出', 'success');
+                    loadRooms();
+                } else {
+                    showAlert(data.message || '踢出玩家失败', 'error');
+                }
+            })
+            .catch(error => {
+                showAlert('踢出玩家失败: ' + error.message, 'error');
+            });
+        }
+        
+        function performForceReady(roomId, userId) {
+            fetch('/api/admin/force-ready', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + authToken
+                },
+                body: JSON.stringify({ roomId, userId, confirmed: true })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showAlert('玩家已强制准备', 'success');
+                    loadRooms();
+                } else {
+                    showAlert(data.message || '强制准备失败', 'error');
+                }
+            })
+            .catch(error => {
+                showAlert('强制准备失败: ' + error.message, 'error');
+            });
+        }
+        
+        function showAlert(message, type) {
+            const alert = document.getElementById('alert');
+            alert.className = 'alert alert-' + type;
+            alert.textContent = message;
+            alert.style.display = 'block';
+            
+            setTimeout(() => {
+                alert.style.display = 'none';
+            }, 5000);
+        }
+        
+        // 按Enter键登录
+        document.getElementById('password').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                login();
+            }
+        });
+    </script>
+</body>
+</html>

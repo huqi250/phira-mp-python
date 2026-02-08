@@ -1,0 +1,20 @@
+# 需要通过pip安装的依赖
+requests
+asyncio
+cachetools
+logging
+os
+pathlib
+random
+sys
+time
+threading
+urllib
+json
+socket
+hashlib
+collections
+# 可选依赖
+# 如果需要使用FastAPI（panel.py中使用）
+fastapi
+uvicorn

@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PyPhira 房间查询</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: #4a6fa5;
+        }
+        /* 复制模块样式（支持提示换行） */
+        .copy-box {
+            margin: 20px auto;
+            text-align: center;
+            font-size: 16px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        /* 可点击的服务器地址样式 */
+        .server-addr {
+            color: #4a6fa5;
+            cursor: pointer;
+            font-weight: 500;
+            text-decoration: underline;
+            transition: color 0.2s;
+        }
+        .server-addr:hover {
+            color: #3a5a85;
+        }
+        /* 【关键修改】复制成功提示：换行显示，块级元素 */
+        .copy-tip {
+            color: #388e3c;
+            font-size: 14px;
+            margin-top: 5px; /* 与地址拉开间距 */
+            display: none; /* 默认隐藏 */
+        }
+        /* 隐藏临时复制输入框（兼容本地） */
+        .copy-temp {
+            position: absolute;
+            top: -9999px;
+            left: -9999px;
+            opacity: 0;
+        }
+
+        .search-form {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background: #4a6fa5;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #3a5a85;
+        }
+        .rooms-list {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .room-header {
+            background: #4a6fa5;
+            color: white;
+            padding: 15px;
+            font-weight: bold;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
+        }
+        .room-item {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+        }
+        .room-item:hover {
+            background: #f9f9f9;
+        }
+        .server-info {
+            color: #666;
+            font-size: 12px;
+            text-align: center;
+        }
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            text-align: center;
+        }
+        .status-SelectChart {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        .status-WaitForReady {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+        .status-Playing {
+            background: #e8f5e8;
+            color: #388e3c;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PyPhira 房间查询</h1>
+
+        <!-- 复制模块：提示单独换行显示 -->
+        <div class="copy-box">
+            服务器地址：<span class="server-addr" id="serverAddr">127.0.0.1:12348</span>
+            <!-- 【关键修改】提示单独占一行 -->
+            <div class="copy-tip" id="copyTip"> 复制成功</div>
+            <input type="text" class="copy-temp" id="copyTempInput" value="qd.phira.huqi-studio.top:57576">
+        </div>
+        
+        
+        <div class="search-form">
+            <h2>查询条件</h2>
+            <div class="form-group">
+                <label for="roomId">房间号</label>
+                <input type="text" id="roomId" placeholder="输入房间号">
+            </div>
+            <div class="form-group">
+                <label for="state">房间状态</label>
+                <select id="state">
+                    <option value="">全部</option>
+                    <option value="SelectChart">选择曲目</option>
+                    <option value="WaitForReady">等待准备</option>
+                    <option value="Playing">游戏中</option>
+                </select>
+            </div>
+            <button onclick="searchRooms()">搜索房间</button>
+            <button onclick="clearFilters()">清空筛选</button>
+        </div>
+        
+        <div class="rooms-list">
+            <div class="room-header">
+                <div>房间号</div>
+                <div>状态</div>
+                <div>人数</div>
+                <div>锁定</div>
+                <div>游戏模式</div>
+                <div>操作</div>
+            </div>
+            <div id="rooms-container">
+                <!-- 房间列表将通过JavaScript动态生成 -->
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // 点击地址复制逻辑（未修改，兼容本地+服务器）
+        const serverAddr = document.getElementById('serverAddr');
+        const copyTip = document.getElementById('copyTip');
+        const copyTempInput = document.getElementById('copyTempInput');
+
+        serverAddr.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(serverAddr.innerText);
+                showCopySuccess();
+            } catch (err) {
+                copyTempInput.select();
+                copyTempInput.setSelectionRange(0, 99999);
+                document.execCommand('copy');
+                showCopySuccess();
+            }
+        });
+
+        // 显示复制成功提示（1秒后隐藏）
+        function showCopySuccess() {
+            copyTip.style.display = 'block';
+            setTimeout(() => {
+                copyTip.style.display = 'none';
+            }, 1000);
+        }
+
+        // 原有房间查询逻辑（完全保留）
+        function loadRooms() {
+            fetch('/api/rooms')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === '0') {
+                        renderRooms(data.rooms);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading rooms:', error);
+                });
+        }
+        
+        function searchRooms() {
+            const searchParams = {
+                roomId: document.getElementById('roomId').value,
+                state: document.getElementById('state').value
+            };
+            
+            fetch('/api/rooms/search', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(searchParams)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === '0') {
+                    renderRooms(data.rooms);
+                }
+            })
+            .catch(error => {
+                console.error('Error searching rooms:', error);
+            });
+        }
+        
+        function clearFilters() {
+            document.getElementById('roomId').value = '';
+            document.getElementById('state').value = '';
+            loadRooms();
+        }
+        
+        function renderRooms(rooms) {
+            const container = document.getElementById('rooms-container');
+            container.innerHTML = '';
+            
+            if (!rooms || rooms.length === 0) {
+                container.innerHTML = '<div style="padding: 20px; text-align: center; grid-column: span 7;">没有找到符合条件的房间</div>';
+                return;
+            }
+            
+            rooms.forEach(room => {
+                const roomItem = document.createElement('div');
+                roomItem.className = 'room-item';
+                const serverName = room.server_name || '本地服务器';
+                const serverId = room.server_id || 'local';
+                roomItem.innerHTML = `
+                    <div>${room.roomId}</div>
+                    <div><span class="status-badge status-${room.state}">${room.state}</span></div>
+                    <div>${room.userCount}</div>
+                    <div>${room.locked ? '是' : '否'}</div>
+                    <div>${room.cycle ? '循环模式' : '普通模式'}</div>
+                    <div class="server-info">${serverName} (${serverId})</div>
+                    <div><button onclick="viewRoomDetail('${room.roomId}', '${serverId}')">查看详情</button></div>
+                `;
+                container.appendChild(roomItem);
+            });
+        }
+        
+        function viewRoomDetail(roomId, serverId) {
+            if (serverId && serverId !== 'local') {
+                alert('服务器房间详情功能开发中\n房间号: ' + roomId + '\n所属服务器: ' + serverId);
+                return;
+            }
+            
+            fetch(`/api/room/${roomId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === '0') {
+                        const room = data.room;
+                        alert('房间详情:\n' +
+                              '房间号: ' + room.roomId + '\n' +
+                              '状态: ' + room.state + '\n' +
+                              '人数: ' + room.users.length + '\n' +
+                              '游戏模式: ' + (room.cycle ? '循环模式' : '普通模式'));
+                    } else {
+                        alert('房间不存在');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading room detail:', error);
+                });
+        }
+        
+        // 页面加载时加载房间列表
+        window.onload = function() {
+            loadRooms();
+            // 每1秒刷新一次房间列表
+            setInterval(loadRooms, 1000);
+        };
+    </script>
+    
+    <div style="text-align: center; margin-top: 20px; font-size: 14px; color: #666;">
+        <small>协议实现 by lRENyaaa | 网络逻辑 by Evi233 | 房间查询 by 虎齐awa | bot查询 by 虎齐awa</small>
+    </div>
+    
+ <div style="text-align: center; margin-top: 20px; font-size: 14px; color: #666;">
+        <small><p><a href="http://qd.phira.huqi-studio.top:50275/">点击</a> 前往管理员控制面板。</p>
+
+</small>
+    </div>
+    
+</body>
+</html>

@@ -1,0 +1,546 @@
+from rymc.phira.protocol.data.state import *
+import logging
+
+logger = logging.getLogger(__name__)
+
+# 全局房间"列表"（实际是 dict）
+rooms = {}
+
+# RoomUser 类：用于存储用户的详细信息和其网络连接
+class RoomUser:
+    """一个简单的容器，用于存储用户信息和其连接。"""
+    def __init__(self, user_info, connection):
+        self.info = user_info      # 存储 UserProfile/UserInfo 对象
+        self.connection = connection # 存储 Connection 对象
+
+class Room:
+    def __init__(self, roomId):
+        self.id = roomId
+        self.host = None
+        self.state = SelectChart(None)
+        self.live = False
+        self.locked = False
+        self.cycle = False
+        self.users = {} # 这个字典现在会存储 RoomUser 实例
+        self.monitors = []
+        self.chart = None
+        self.ready = {} # 用于存储用户是否准备好的状态
+        self.finished = {} # 用于存储用户是否完成游戏的状态
+
+# 初始化监控列表
+monitors = [] # 先初始化为空列表
+try:
+    with open("monitors.txt", "r") as f:
+        for line in f:
+            monitors.append(line.strip()) # 将每个监控者ID添加到列表中
+except FileNotFoundError:
+    logger.warning("monitors.txt not found. No monitors loaded.")
+
+
+def create_room(roomId, user_info):
+    """Create a room with the given ID.
+    房间创建返回定义:
+    0: 成功
+    1: 房间已存在
+    2: 玩家已在房间内"""
+    # [修复] 变量覆盖：将循环变量 roomId 改为 existing_room_id，避免覆盖参数 roomId
+    for existing_room_id, room in rooms.items():
+        if user_info.id in room.users:
+            return {"status": "2"}
+
+    if roomId in rooms:                 # 已存在
+        return {"status": "1"}
+    rooms[roomId] = Room(roomId)       # 初始化并放入字典
+    # 设置房主
+    rooms[roomId].host = user_info.id
+    
+    return {"status": "0"}
+
+def destroy_room(roomId):
+    """Destroy the room with the given ID.
+    房间销毁返回定义:
+    0: 成功
+    1: 房间不存在"""
+    if roomId not in rooms:            # 房间不存在
+        return {"status": "1"}
+    del rooms[roomId]
+    
+    return {"status": "0"}
+
+def add_user(roomId, user_info, connection):
+    """Add a user to the room.
+    返回定义:
+    0: 成功
+    1: 房间不存在
+    2: 用户已存在
+    3: 房间已锁定"""
+    logger.info(f"{user_info.id} 正在加入房间 {roomId}")
+    
+    # [修复] 变量覆盖：将循环变量 roomId 改为 existing_room_id
+    for existing_room_id, room in rooms.items():
+        if user_info.id in room.users:
+            # 注意：这里的 status 3 在原始定义中是"房间已锁定"，但逻辑是在检查"玩家是否已在其他房间"
+            # 根据上下文，这里可能想返回类似"玩家忙"的状态，保留原逻辑 status 3
+            return {"status": "3"}
+            
+    if roomId not in rooms:            # 房间不存在
+        logger.warning(f"{user_info.id} 试图加入不存在的房间 {roomId}")
+        return {"status": "1"}
+    if user_info.id in rooms[roomId].users: # 用户已存在
+        logger.warning(f"{user_info.id} 试图重复加入房间 {roomId}")
+        return {"status": "2"}
+    if rooms[roomId].locked:
+        logger.warning(f"{user_info.id} 试图加入已锁定的房间 {roomId}")
+        return {"status": "3"}
+    # 【修改】现在存储 RoomUser 实例，而不是直接存储 user_info
+    rooms[roomId].users[user_info.id] = RoomUser(user_info, connection)
+    return {"status": "0"}
+
+def add_monitor(roomId, monitor_id):
+    """Add a monitor to the room.
+    返回定义:
+    0: 成功
+    1: 房间不存在
+    2: 监控已存在
+    3: 无监控权限"""
+    if roomId not in rooms:            # 房间不存在
+        return {"status": "1"}
+    if monitor_id in rooms[roomId].monitors: # 监控已存在
+        return {"status": "2"}
+    if monitor_id not in monitors: # 无监控权限 (检查全局 monitors 列表)
+        return {"status": "3"}
+    rooms[roomId].monitors.append(monitor_id)
+    # 设置live为True
+    if not rooms[roomId].live:
+        rooms[roomId].live = True
+    return {"status": "0"}
+
+def get_host(roomId):
+    """Get the host of the room.
+    返回定义:
+    0: 成功
+    1: 房间不存在"""
+    if roomId not in rooms:            # 房间不存在
+        return {"status": "1"}
+    logger.debug(f"Room {roomId} host: {rooms[roomId].host}")
+    return {"host": rooms[roomId].host}
+
+def get_roomId(user_id):
+    """Get the room ID of the user.
+    返回定义:
+    0: 成功
+    1: 用户不存在"""
+    # [优化] 虽然这里没有覆盖参数，但为了统一代码风格，将循环变量改为 r_id
+    for r_id, room in rooms.items():
+        if user_id in room.users:
+            return {"roomId": r_id}
+    return {"status": "1"}
+
+def change_host(roomId, host_id):
+    """Change the host of the room.
+    返回定义:
+    0: 成功
+    1: 房间不存在
+    2: 新房主不存在"""
+    if roomId not in rooms:            # 房间不存在
+        return {"status": "1"}
+    if host_id not in rooms[roomId].users: # 新房主不存在
+        return {"status": "2"}
+    rooms[roomId].host = host_id
+    return {"status": "0"}
+
+def room_lock_state_change(roomId):
+    """Lock the room.
+    返回定义:
+    0: 成功
+    1: 房间不存在"""
+    if roomId not in rooms:            # 房间不存在
+        return {"status": "1"}
+    #如果原来这个房间被锁定
+    if rooms[roomId].locked:
+        rooms[roomId].locked = False
+    else:
+        rooms[roomId].locked = True
+    return {"status": "0"}
+
+def set_state(roomId, state):
+    """Set the state of the room.
+    返回定义:
+    0: 成功
+    1: 房间不存在"""
+    if roomId not in rooms:            # 房间不存在
+        return {"status": "1"}
+    rooms[roomId].state = state
+    return {"status": "0"}
+
+def set_cycle_mode(roomId, cycle):
+    """Set the cycle mode of the room.
+    返回定义:
+    0: 成功
+    1: 房间不存在"""
+    if roomId not in rooms:            # 房间不存在
+        return {"status": "1"}
+    rooms[roomId].cycle = cycle
+    return {"status": "0"}
+
+def set_chart(roomId, chart):
+    """Set the chart of the room.
+    返回定义:
+    0: 成功
+    1: 房间不存在"""
+    if roomId not in rooms:            # 房间不存在
+        return {"status": "1"}
+    rooms[roomId].chart = chart
+    #改变状态为SelectChart
+    set_state(roomId, SelectChart(chartId=chart))
+    return {"status": "0"}
+
+def player_leave(roomId, user_id):
+    """Remove a user from the room.
+    返回定义:
+    0: 成功
+    1: 房间不存在
+    2: 用户不存在"""
+    if roomId not in rooms:            # 房间不存在
+        return {"status": "1"}
+    if user_id not in rooms[roomId].users: # 用户不存在
+        return {"status": "2"}
+    # 【修改】使用 del 从字典中删除用户
+    del rooms[roomId].users[user_id]
+    return {"status": "0"}
+
+def monitor_leave(roomId, monitor_id):
+    """Remove a monitor from the room.
+    返回定义:
+    0: 成功
+    1: 房间不存在
+    2: 监控不存在"""
+    if roomId not in rooms:            # 房间不存在
+        return {"status": "1"}
+    if monitor_id not in rooms[roomId].monitors: # 监控不存在
+        return {"status": "2"}
+    rooms[roomId].monitors.remove(monitor_id)
+    return {"status": "0"}
+
+# 【修改】is_monitor 函数定义和逻辑
+def is_monitor(user_id): # 只接受 user_id 参数
+    """检查一个 ID 是否在全局监控者列表中。
+    返回定义:
+    0: 是监控者
+    1: 不是监控者"""
+    if user_id in monitors: # 检查 user_id 是否在全局 monitors 列表中
+        return {"monitor": "0"} # 是监控者
+    else:
+        return {"monitor": "1"} # 不是监控者
+    
+def get_connections(roomId):
+    """Get the connection of all users in the room.
+    返回定义:
+    0: 成功
+    1: 房间不存在""" # 这里不需要用户不存在的状态，因为遍历时不存在就不会被添加
+    if roomId not in rooms:            # 房间不存在
+        return {"status": "1"}
+    connections = []
+    for user_id in rooms[roomId].users:
+        # 【修改】从 RoomUser 实例中获取 connection
+        connections.append(rooms[roomId].users[user_id].connection)
+    return {"status": "0", "connections": connections}
+
+def get_room_state(roomId):
+    """Get the state of the room.
+    返回定义:
+    0: 成功
+    1: 房间不存在"""
+    if roomId not in rooms:            # 房间不存在
+        return {"status": "1"}
+    return {"status": "0", "state": rooms[roomId].state}
+
+def get_all_users(roomId):
+    """Get all users in the room.
+    返回定义:
+    0: 成功
+    1: 房间不存在"""
+    if roomId not in rooms:            # 房间不存在
+        return {"status": "1"}
+    return {"status": "0", "users": rooms[roomId].users}
+
+def get_all_monitors(roomId):
+    """Get all monitors in the room.
+    返回定义:
+    0: 成功
+    1: 房间不存在"""
+    if roomId not in rooms:            # 房间不存在
+        return {"status": "1"}
+    return {"status": "0", "monitors": rooms[roomId].monitors}
+
+def is_live(roomId):
+    """Check if the room is live.
+    返回定义:
+    0: 是直播
+    1: 不是直播"""
+    if roomId not in rooms:            # 房间不存在
+        return {"status": "1"}
+    return {"status": "0", "isLive": rooms[roomId].live}
+
+def set_ready(roomId, user_id):
+    """Set a user as ready in the room.
+    返回定义:
+    0: 成功
+    1: 房间不存在
+    2: 用户不存在"""
+    if roomId not in rooms:            # 房间不存在
+        return {"status": "1"}
+    if user_id not in rooms[roomId].users: # 用户不存在
+        return {"status": "2"}
+    #设置用户为准备好
+    #这里把用户的id放进ready字典
+    rooms[roomId].ready[user_id] = True
+    return {"status": "0"}
+
+def cancel_ready(roomId, user_id):
+    """Cancel a user's ready status in the room.
+    返回定义:
+    0: 成功
+    1: 房间不存在
+    2: 用户不存在"""
+    if roomId not in rooms:            # 房间不存在
+        return {"status": "1"}
+    if user_id not in rooms[roomId].users: # 用户不存在
+        return {"status": "2"}
+    #取消用户的ready状态
+    #这里把用户的id从ready字典中移除
+    del rooms[roomId].ready[user_id]
+    return {"status": "0"}
+
+def set_finished(roomId, user_id):
+    """Set a user as finished in the room.
+    返回定义:
+    0: 成功
+    1: 房间不存在
+    2: 用户不存在"""
+    if roomId not in rooms:            # 房间不存在
+        return {"status": "1"}
+    if user_id not in rooms[roomId].users: # 用户不存在
+        return {"status": "2"}
+    #设置用户为完成
+    #这里把用户的id放进finished字典
+    rooms[roomId].finished[user_id] = True
+    return {"status": "0"}
+
+def cancel_finished(roomId, user_id):
+    """Cancel a user's finished status in the room.
+    返回定义:
+    0: 成功
+    1: 房间不存在
+    2: 用户不存在"""
+    if roomId not in rooms:            # 房间不存在
+        return {"status": "1"}
+    if user_id not in rooms[roomId].users: # 用户不存在
+        return {"status": "2"}
+    #取消用户的finished状态
+    #这里把用户的id从finished字典中移除
+    del rooms[roomId].finished[user_id]
+    return {"status": "0"}
+
+#---群体操作---
+#获取一个人所在的所有房间
+def get_rooms_of_user(user_id):
+    """Get all rooms that a user is in.
+    返回定义:
+    0: 成功"""
+    #TODO:1:用户不存在
+    rooms_of_user = []
+    # [优化] 将循环变量改为 r_id，避免未来可能的混淆
+    for r_id in rooms:
+        if user_id in rooms[r_id].users:
+            rooms_of_user.append(r_id)
+    return {"status": "0", "rooms": rooms_of_user}
+
+def remove_user_from_all_rooms(user_id):
+    """Remove a user from all rooms.
+    返回定义:
+    0: 成功 (用户至少从一个房间被移除)
+    1: 用户不存在于任何房间"""
+    
+    user_was_in_a_room = False # 标志，用于判断用户是否至少从一个房间被移除了
+    
+    # 遍历所有房间的 ID
+    # 使用 list(rooms.keys()) 是为了在遍历时避免字典结构被修改可能导致的问题
+    # [优化] 将循环变量改为 r_id
+    for r_id in list(rooms.keys()):
+        # 调用 player_leave 尝试从当前房间移除用户
+        result = player_leave(r_id, user_id)
+        
+        # 如果 player_leave 返回状态 0 (成功移除)
+        if result.get("status") == "0":
+            user_was_in_a_room = True # 标记为 True，表示用户至少在一个房间中被发现并移除了
+            
+    if user_was_in_a_room:
+        return {"status": "0"} # 用户至少从一个房间被移除，视为成功
+    else:
+        # 如果循环结束，user_was_in_a_room 仍然是 False，说明用户不在任何房间
+        return {"status": "1"} # 用户不存在于任何房间
+
+
+def get_all_rooms():
+    """Get all rooms information.
+    返回所有房间的详细信息，包括房间ID、状态、人数等"""
+    rooms_info = []
+    for room_id, room in rooms.items():
+        users_info = {}
+        for user_id, user in room.users.items():
+            users_info[user_id] = {
+                "id": user.info.id,
+                "name": user.info.name
+            }
+        room_info = {
+            "roomId": room_id,
+            "host": room.host,
+            "state": str(type(room.state).__name__),
+            "locked": room.locked,
+            "live": room.live,
+            "cycle": room.cycle,
+            "userCount": len(room.users),
+            "monitorCount": len(room.monitors),
+            "chart": room.chart,
+            "users": users_info
+        }
+        rooms_info.append(room_info)
+    return {"status": "0", "rooms": rooms_info}
+
+
+def get_room_detail(roomId):
+    """Get detailed information about a specific room.
+    返回定义:
+    0: 成功
+    1: 房间不存在"""
+    if roomId not in rooms:
+        return {"status": "1"}
+    
+    room = rooms[roomId]
+    users_info = []
+    for user_id, user in room.users.items():
+        users_info.append({
+            "id": user.info.id,
+            "name": user.info.name
+        })
+    
+    room_detail = {
+        "roomId": roomId,
+        "host": room.host,
+        "state": str(type(room.state).__name__),
+        "locked": room.locked,
+        "live": room.live,
+        "cycle": room.cycle,
+        "users": users_info,
+        "monitors": room.monitors,
+        "chart": room.chart,
+        "readyCount": len(room.ready),
+        "finishedCount": len(room.finished)
+    }
+    
+    return {"status": "0", "room": room_detail}
+
+#---管理员操作函数---
+
+def admin_force_destroy_room(roomId):
+    """管理员强制解散房间
+    返回定义:
+    0: 成功
+    1: 房间不存在"""
+    if roomId not in rooms:
+        return {"status": "1"}
+    
+    # 获取房间中的所有玩家连接
+    connections = []
+    for user_id, room_user in rooms[roomId].users.items():
+        connections.append(room_user.connection)
+    
+    # 销毁房间
+    result = destroy_room(roomId)
+    
+    # 通知所有玩家房间已解散
+    from rymc.phira.protocol.packet.clientbound import ClientBoundMessagePacket
+    from rymc.phira.protocol.data.message import AbortMessage
+    
+    for conn in connections:
+        if conn:
+            try:
+                packet = ClientBoundMessagePacket(AbortMessage("房间已被管理员解散"))
+                conn.send(packet)
+            except Exception as e:
+                logger.error(f"Failed to send abort message: {e}")
+    
+    return result
+
+def admin_force_kick_player(roomId, user_id):
+    """管理员强制踢出玩家
+    返回定义:
+    0: 成功
+    1: 房间不存在
+    2: 用户不存在"""
+    if roomId not in rooms:
+        return {"status": "1"}
+    
+    if user_id not in rooms[roomId].users:
+        return {"status": "2"}
+    
+    # 获取玩家连接
+    player_connection = rooms[roomId].users[user_id].connection
+    
+    # 从房间移除玩家
+    result = player_leave(roomId, user_id)
+    
+    # 通知玩家被踢出
+    from rymc.phira.protocol.packet.clientbound import ClientBoundMessagePacket
+    from rymc.phira.protocol.data.message import AbortMessage
+    
+    if player_connection:
+        try:
+            packet = ClientBoundMessagePacket(AbortMessage("你已被管理员踢出房间"))
+            player_connection.send(packet)
+        except Exception as e:
+            logger.error(f"Failed to send kick message: {e}")
+    
+    # 通知房间内其他玩家
+    from rymc.phira.protocol.data.message import LeaveRoomMessage
+    from rymc.phira.protocol.data import UserProfile
+    
+    packet = ClientBoundMessagePacket(LeaveRoomMessage(user_id, "Unknown"))
+    for _, room_user in rooms[roomId].users.items():
+        if room_user.connection != player_connection:
+            try:
+                room_user.connection.send(packet)
+            except Exception as e:
+                logger.error(f"Failed to send leave message: {e}")
+    
+    return result
+
+def admin_force_ready(roomId, user_id):
+    """管理员强制玩家准备
+    返回定义:
+    0: 成功
+    1: 房间不存在
+    2: 用户不存在"""
+    if roomId not in rooms:
+        return {"status": "1"}
+    
+    if user_id not in rooms[roomId].users:
+        return {"status": "2"}
+    
+    # 强制玩家准备
+    result = set_ready(roomId, user_id)
+    
+    # 通知房间内所有玩家
+    from rymc.phira.protocol.packet.clientbound import ClientBoundReadyPacket
+    
+    if result["status"] == "0":
+        packet = ClientBoundReadyPacket(user_id, True)
+        for _, room_user in rooms[roomId].users.items():
+            try:
+                room_user.connection.send(packet)
+            except Exception as e:
+                logger.error(f"Failed to send ready message: {e}")
+    
+    return result
+
