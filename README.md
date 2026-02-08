@@ -1,7 +1,7 @@
 <img src="logo.png" alt="pyphira logo" align="right" width="23%">
 <div align="center">
   <h1>phira-mp-python</h1>
-  <h3>一个基于 Python asyncio 的 <b>Phira</b> 多人游戏服务器，使用开源项目https://github.com/Evi233/pyphira-mp修改开发</h3>
+  <h3>一个基于 Python asyncio 的 <b>Phira</b> 多人游戏服务器，使用开源项目 https://github.com/Evi233/pyphira-mp 修改开发</h3>
   <h5><i>正在积极测试中，可能不稳定，如遇任何问题，欢迎提供反馈和建议！</i></h5>
 </div>
 
